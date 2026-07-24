@@ -1,0 +1,38 @@
+
+Bootstrap: docker
+From: almalinux:10
+
+%post
+
+dnf -y update
+
+dnf config-manager --set-enabled crb
+dnf install -y epel-release
+
+yum install -y gcc-toolset-15
+
+dnf -y install \
+   file vim wget gcc g++ cmake git systemd-devel systemd-libs \
+   python3-yaml python3-mako pip dbus dbus-libs dbus-devel \
+   python3-jsonschema json-devel cli11-devel cereal-devel \
+   pam-devel gcc-toolset-15-libatomic-devel \
+   zlib-devel libi2c-devel libxml2-devel libevdev-devel \
+   net-snmp-devel gtest-devel net-tools fmt-devel liburing-devel \
+   libnghttp2-devel tinyxml2-devel json-c-devel openldap-devel \
+   npm libnl3-devel socat rpm-build rubygems
+
+pip3 install meson ninja inflection build
+
+gem install fpm
+
+dnf clean all
+
+echo "excludepkgs=libgpiod,libgpiod-devel,iniparser,iniparser-devel" >> /etc/dnf/dnf.conf
+
+%environment
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+%runscript
+echo "AlmaLinux 10 container"
+

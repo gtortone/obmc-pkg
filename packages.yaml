@@ -1,0 +1,360 @@
+# =============================================================================
+# OpenBMC kit manifest
+#
+# Fields: source (git|tarball) . builder (meson|cmake|script) . packager (fpm|cpack|none)
+# Placeholders in build_script/hooks: {src} {build} {stage} {sysroot} {home} {version} {name}
+#
+# =============================================================================
+
+defaults:
+  buildtype: release
+  default_version: "1.0"      # used when a package omits 'version'
+  vendor: "netFELIX"
+  maintainer: "gennaro.tortone@na.infn.it"
+  fpm: fpm
+
+packages:
+
+  # === External dependencies (non-OpenBMC) ==================================
+
+  - name: boost
+    source: tarball
+    url: https://github.com/boostorg/boost/releases/download/boost-1.91.0-1/boost-1.91.0-1-cmake.tar.gz
+    subdir: boost-1.91.0-1
+    version: "1.91.0"
+    builder: script
+    packager: fpm
+    build_script:
+      - "./bootstrap.sh --prefix={sysroot}/usr"
+      - "./b2 -j$(nproc) --prefix={sysroot}/usr install"
+      - "./b2 -j$(nproc) --prefix={src}/stage/usr install"
+
+  - name: function2
+    git: https://github.com/Naios/function2
+    ref: 4.2.5
+    version: "4.2.5"
+    builder: cmake
+    packager: cpack
+    cmake_opts: ["-DBUILD_TESTING=NO"]
+    requires: []
+
+  - name: stdexec
+    git: https://github.com/NVIDIA/stdexec
+    ref: nvhpc-26.05
+    version: "26.05"
+    requires: []
+
+  - name: valijson
+    git: https://github.com/tristanpenman/valijson
+    ref: v1.1.3
+    version: "1.1.3"
+    builder: cmake
+    packager: fpm
+    submodules: true
+    requires: []
+
+  - name: libgpiod-devel
+    source: tarball
+    url: https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git/snapshot/libgpiod-1.6.3.tar.gz
+    subdir: libgpiod-1.6.3
+    version: "1.6.3"
+    meson_opts: ["-Dbindings=cxx"]
+    requires: []
+    hooks:
+      post_checkout:
+        - "cd {home} && wget -O libgpiod_1.6.3-1_patch.zip https://wrapdb.mesonbuild.com/v2/libgpiod_1.6.3-1/get_patch"
+        - "cd {home} && unzip -o libgpiod_1.6.3-1_patch.zip"
+        - "cd {home} && rm -f libgpiod_1.6.3-1_patch.zip"
+
+  - name: iniparser
+    git: https://github.com/ndevilla/iniparser
+    ref: v4.2.6
+    version: "4.2.6"
+    builder: cmake
+    packager: fpm
+
+  # === OpenBMC foundations ==================================================
+
+  - name: sdbusplus
+    git: https://github.com/openbmc/sdbusplus
+    ref: master
+    meson_opts: ["-Dexamples=disabled", "-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    hooks:
+      post_install:
+        - "cd {src}/tools && python3 -m build"
+        - "cd {src}/tools && pip install --no-deps --ignore-installed --root {stage}   dist/sdbusplus-*.tar.gz"
+        - "cd {src}/tools && pip install --no-deps --ignore-installed --root {sysroot} dist/sdbusplus-*.tar.gz"
+    rpm_requires: ["systemd-libs", "stdexec", "boost"]
+    requires: [stdexec, boost]
+
+  - name: sdeventplus
+    git: https://github.com/openbmc/sdeventplus
+    ref: master
+    meson_opts: ["-Dtests=disabled", "-Dexamples=false"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["function2", "openbmc-sdbusplus", "openbmc-stdplus"]
+    requires: [function2, sdbusplus, stdplus]
+
+  - name: stdplus
+    git: https://github.com/openbmc/stdplus
+    ref: master
+    meson_opts: ["-Dtests=disabled", "-Dexamples=false", "-Dgtest=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["function2", "fmt-devel", "liburing-devel"]
+    requires: [function2]
+
+  - name: gpioplus
+    git: https://github.com/openbmc/gpioplus
+    ref: master
+    meson_opts: ["-Dtests=disabled", "-Dexamples=false"]
+    rpm_prefix: "openbmc-"
+    requires: []
+
+  - name: phosphor-dbus-interfaces
+    git: https://github.com/openbmc/phosphor-dbus-interfaces
+    ref: master
+    meson_opts: []
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus"]
+    requires: [sdbusplus]
+
+  - name: phosphor-logging
+    git: https://github.com/openbmc/phosphor-logging
+    ref: master
+    meson_opts: ["-Dtests=disabled", "-Dyamldir={sysroot}/usr/share/phosphor-dbus-yaml"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdeventplus", "openbmc-phosphor-dbus-interfaces", "openbmc-sdbusplus" ]
+    requires: [sdeventplus, phosphor-dbus-interfaces, sdbusplus]
+
+  - name: phosphor-objmgr
+    git: https://github.com/openbmc/phosphor-objmgr
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["boost", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdbusplus" ]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost]
+
+  - name: phosphor-snmp
+    git: https://github.com/openbmc/phosphor-snmp
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdbusplus" ]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+      
+  - name: libcper
+    git: https://github.com/openbmc/libcper
+    ref: main
+    rpm_prefix: "openbmc-"
+    requires: []
+
+  - name: libpeci
+    git: https://github.com/openbmc/libpeci
+    ref: master
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["boost", "openbmc-sdbusplus" ]
+    requires: [boost, sdbusplus]
+      
+  - name: libpldm
+    git: https://github.com/openbmc/libpldm
+    ref: main
+    meson_opts: ["-Dtests=false"]
+    rpm_prefix: "openbmc-"
+    requires: []
+      
+  - name: pldm
+    git: https://github.com/openbmc/pldm
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-libcper", "openbmc-sdbusplus", "openbmc-sdeventplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-libpldm", "openbmc-stdplus"]
+    requires: [libcper, sdbusplus, sdeventplus, phosphor-dbus-interfaces, phosphor-logging, libpldm, stdplus]
+
+  - name: telemetry
+    git: https://github.com/openbmc/telemetry
+    ref: master
+    meson_opts: ["-Dbuildtest=false"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["boost", "openbmc-sdbusplus", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-logging, boost]
+
+  - name: entity-manager
+    git: https://github.com/openbmc/entity-manager
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "boost", "valijson", "libgpiod-devel"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost, valijson, libgpiod-devel]
+      
+  - name: dbus-sensors
+    git: https://github.com/openbmc/dbus-sensors
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "boost", "libgpiod-devel", "openbmc-libpeci"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost, libgpiod-devel, libpeci]
+
+  - name: bmcweb
+    git: https://github.com/openbmc/bmcweb
+    ref: master
+    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled"]
+    rpm_prefix: "openbmc-"
+    requires: [sdbusplus, boost]
+
+  - name: obmc-console
+    git: https://github.com/openbmc/obmc-console
+    ref: master
+    meson_opts: ["-Dtests=false"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["libgpiod-devel"]
+    requires: [libgpiod-devel]
+      
+  - name: phosphor-state-manager
+    git: https://github.com/openbmc/phosphor-state-manager
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-gpioplus", "libgpiod-devel", "openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus"]
+    requires: [gpioplus, libgpiod-devel, sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus]
+
+  - name: phosphor-settingsd
+    git: https://github.com/openbmc/phosphor-settingsd
+    ref: master
+    meson_opts: []
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+      
+  - name: phosphor-user-manager
+    git: https://github.com/openbmc/phosphor-user-manager
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+
+  - name: phosphor-certificate-manager
+    git: https://github.com/openbmc/phosphor-certificate-manager
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus]
+      
+  - name: phosphor-networkd
+    git: https://github.com/openbmc/phosphor-networkd
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus", "openbmc-stdplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus, stdplus]
+
+  - name: phosphor-buttons
+    git: https://github.com/openbmc/phosphor-buttons
+    ref: master
+    meson_opts: []
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-gpioplus", "openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus", "libgpiod-devel"]
+    requires: [gpioplus, sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus, libgpiod-devel]
+
+  - name: phosphor-gpio-monitor
+    git: https://github.com/openbmc/phosphor-gpio-monitor
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["boost", "openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "libgpiod-devel"]
+    requires: [boost, sdbusplus, phosphor-dbus-interfaces, phosphor-logging, libgpiod-devel]
+
+  - name: phosphor-led-manager
+    git: https://github.com/openbmc/phosphor-led-manager
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus]
+
+  - name: phosphor-led-sysfs
+    git: https://github.com/openbmc/phosphor-led-sysfs
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+
+  - name: phosphor-hwmon
+    git: https://github.com/openbmc/phosphor-hwmon
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-stdplus", "openbmc-gpioplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, stdplus, gpioplus]
+
+  - name: phosphor-fan-presence
+    git: https://github.com/openbmc/phosphor-fan-presence
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus]
+
+  - name: phosphor-health-monitor
+    git: https://github.com/openbmc/phosphor-health-monitor
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus]
+
+  - name: phosphor-debug-collector
+    git: https://github.com/openbmc/phosphor-debug-collector
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus]
+
+  - name: phosphor-dbus-monitor
+    git: https://github.com/openbmc/phosphor-dbus-monitor
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus", "openbmc-phosphor-snmp"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus, phosphor-snmp]
+
+  - name: phosphor-power
+    git: https://github.com/openbmc/phosphor-power
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus", "openbmc-stdplus", "libgpiod-devel"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus, stdplus, libgpiod-devel]
+
+  - name: phosphor-power-control
+    git: https://github.com/openbmc/phosphor-power-control
+    ref: master
+    meson_opts: []
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-gpioplus", "openbmc-phosphor-logging"]
+    requires: [gpioplus, phosphor-logging]
+
+  - name: x86-power-control
+    git: https://github.com/openbmc/x86-power-control
+    ref: master
+    meson_opts: []
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-logging", "boost", "libgpiod-devel"]
+    requires: [sdbusplus, phosphor-logging, boost, libgpiod-devel]
+
+      #  - name: webui-vue
+      #    git: https://github.com/openbmc/webui-vue
+      #    ref: master
+      #    builder: script
+      #    packager: fpm
+      #    fpm_source: dist               # fpm packages dist/, not stage/
+      #    fpm_prefix: /usr/share/www/     # destination on the target
+      #    rpm_prefix: "openbmc-"
+      #    requires: []
+      #    build_script:
+      #      - "npm --loglevel info install"
+      #      - "npm run build"

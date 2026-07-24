@@ -1,0 +1,578 @@
+#!/usr/bin/env python3
+"""
+Orchestrator for RPM packaging of OpenBMC (aarch64), including external
+dependencies (boost, function2, stdexec, ...).
+
+Three per-package axes:
+  source   : git (default) | tarball
+  builder  : meson (default) | cmake | script
+  packager : fpm (default) | cpack | none
+
+Phases and checkpointing:
+  - meson/cmake : checkout -> setup -> compile -> install -> package
+  - script      : checkout -> build -> package
+  Each completed phase writes a marker holding a signature (hash of ref/url +
+  options + builder/packager + version + hooks/script). On restart, phases with a
+  valid marker are skipped: this gives both resume-after-interruption AND rebuild
+  when something changes.
+
+Environment mirrors the user's setup (PREFIX == OBMC_LOCAL, logical prefix=/usr,
+double install into stage + sysroot). We intentionally do NOT set
+PKG_CONFIG_SYSROOT_DIR.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+# --- Base paths (overridable via env) ---------------------------------------
+OBMC_HOME = Path(os.environ.get("OBMC_HOME", Path.home() / "openbmc")).resolve()
+OBMC_LOCAL = Path(os.environ.get("OBMC_LOCAL", OBMC_HOME / "local")).resolve()
+OUT = Path(os.environ.get("OBMC_RPMS", OBMC_HOME / "rpms")).resolve()
+STATE = OBMC_HOME / ".pkgstate"
+PY_SITE = os.environ.get("OBMC_PYSITE", "python3.12")
+
+MESON_PHASES = ["checkout", "setup", "compile", "install", "package"]
+SCRIPT_PHASES = ["checkout", "build", "package"]
+
+
+# --- Environment: exact replica of the user's setup -------------------------
+def make_env() -> dict:
+    p = str(OBMC_LOCAL)
+    e = os.environ.copy()
+
+    def prepend(var, *vals):
+        cur = e.get(var, "")
+        parts = [v for v in vals if v]
+        e[var] = ":".join(parts + ([cur] if cur else []))
+
+    prepend("PATH", f"{p}/usr/bin", f"{p}/usr/local/bin")
+    # Sysroot first, then system dirs so distro packages (fmt, nlohmann-json, ...)
+    # are still found via pkg-config.
+    e["PKG_CONFIG_PATH"] = (
+        f"{p}/usr/lib/pkgconfig:{p}/usr/lib64/pkgconfig:{p}/usr/share/pkgconfig:"
+        f"/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    )
+    e["CMAKE_PREFIX_PATH"] = p
+    prepend("LD_LIBRARY_PATH", f"{p}/usr/lib", f"{p}/usr/lib64")
+    prepend("LIBRARY_PATH", f"{p}/usr/lib", f"{p}/usr/lib64")
+    prepend("C_INCLUDE_PATH", f"{p}/usr/include")
+    prepend("CPLUS_INCLUDE_PATH", f"{p}/usr/include")
+    e["BOOST_ROOT"] = f"{p}/usr"
+    prepend("PYTHONPATH", f"{p}/usr/local/lib/{PY_SITE}/site-packages")
+    return e
+
+
+ENV = make_env()
+
+# Manifest 'defaults' block, populated in main(). Holds e.g. default_version.
+DEFAULTS = {}
+
+
+def pkg_version(cfg) -> str:
+    """Package version, falling back to defaults.default_version, then '1.0'."""
+    return cfg.get("version") or DEFAULTS.get("default_version", "1.0")
+
+
+# --- Colors -----------------------------------------------------------------
+# Enabled only on a TTY and when NO_COLOR is unset; safe when piped to a file.
+_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def _c(code, text):
+    return f"\033[{code}m{text}\033[0m" if _COLOR else text
+
+
+def bold(t):   return _c("1", t)
+def dim(t):    return _c("2", t)
+def red(t):    return _c("1;31", t)
+def green(t):  return _c("1;32", t)
+def yellow(t): return _c("1;33", t)
+def cyan(t):   return _c("1;36", t)
+
+
+# --- Utilities --------------------------------------------------------------
+def log(pkg, msg):
+    """Informational message from the orchestrator."""
+    print(f"{cyan('[' + pkg + ']')} {msg}", flush=True)
+
+
+def warn(msg):
+    print(f"{yellow('! ' + msg)}", flush=True)
+
+
+def sh(cmd, cwd=None, env=None):
+    print(dim("+ " + " ".join(map(str, cmd))), flush=True)
+    subprocess.run(cmd, check=True, cwd=cwd, env=env or ENV)
+
+
+def shell(script, cwd=None):
+    print(dim("+ (sh) " + script), flush=True)
+    subprocess.run(["bash", "-euo", "pipefail", "-c", script],
+                   check=True, cwd=cwd, env=ENV)
+
+
+def render(s: str, ctx: dict) -> str:
+    for k, v in ctx.items():
+        s = s.replace("{" + k + "}", str(v))
+    return s
+
+
+def sig(cfg) -> str:
+    key = {
+        "source": cfg.get("source", "git"),
+        "builder": cfg.get("builder", "meson"),
+        "packager": cfg.get("packager", "fpm"),
+        "ref": cfg.get("ref"),
+        "url": cfg.get("url"),
+        "subdir": cfg.get("subdir"),
+        "opts": cfg.get("meson_opts", []),
+        "cmake_opts": cfg.get("cmake_opts", []),
+        "wrap_mode": cfg.get("wrap_mode", "nofallback"),
+        "submodules": bool(cfg.get("submodules", False)),
+        "buildtype": cfg.get("buildtype", "release"),
+        "ver": pkg_version(cfg),
+        "hooks": cfg.get("hooks", {}),
+        "build_script": cfg.get("build_script", []),
+        "fpm_source": cfg.get("fpm_source", "stage"),
+        "fpm_prefix": cfg.get("fpm_prefix", "/"),
+    }
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def marker(pkg, phase):
+    return STATE / pkg / f"{phase}.done"
+
+
+def is_done(pkg, phase, s):
+    m = marker(pkg, phase)
+    return m.exists() and m.read_text().strip() == s
+
+
+def set_done(pkg, phase, s):
+    m = marker(pkg, phase)
+    m.parent.mkdir(parents=True, exist_ok=True)
+    m.write_text(s)
+
+
+def clear(pkg):
+    d = STATE / pkg
+    if d.exists():
+        shutil.rmtree(d)
+
+
+def clean_pkg(cfg, defaults=None, assume_yes=False):
+    """Remove markers + source tree + produced RPM(s) for one package, as if it
+    had never been built. Does NOT touch the shared sysroot (OBMC_LOCAL)."""
+    defaults = defaults or {}
+    name = cfg["name"]
+    src = src_dir(cfg)
+    prefix = cfg.get("rpm_prefix", defaults.get("rpm_prefix", ""))
+    # Match RPMs by both the plain and the prefixed name (globs cover cpack too).
+    rpms = []
+    if OUT.exists():
+        for stem in {name, f"{prefix}{name}"}:
+            rpms += [r for r in OUT.glob(f"{stem}-*.rpm") if r not in rpms]
+    state = STATE / name
+
+    targets = []
+    if state.exists():
+        targets.append(state)
+    if src.exists():
+        targets.append(src)
+    targets += [r for r in rpms if r.exists()]
+
+    if not targets:
+        warn(f"{name}: nothing to clean")
+        return
+
+    print(bold(f"--clean {name} will remove:"))
+    for t in targets:
+        print(f"  {t}")
+    print(dim("  (the shared sysroot at "
+              f"{OBMC_LOCAL} is left untouched)"))
+
+    if not assume_yes:
+        try:
+            answer = input(yellow(f"Proceed? [y/N] ")).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            print("aborted.")
+            return
+
+    for t in targets:
+        if t.is_dir():
+            shutil.rmtree(t)
+        else:
+            t.unlink(missing_ok=True)
+        print(green(f"removed {t}"))
+
+
+def full_clean(pkgs, assume_yes=False):
+    """Wipe the whole environment: state markers, every source tree, the shared
+    sysroot (OBMC_LOCAL) and the RPM output dir. Selectively removes only the
+    directories this tool creates, so unrelated files under OBMC_HOME survive."""
+    targets = []
+    if STATE.exists():
+        targets.append(STATE)
+    for cfg in pkgs:
+        src = src_dir(cfg)
+        if src.exists() and src not in targets:
+            targets.append(src)
+    if OBMC_LOCAL.exists():
+        targets.append(OBMC_LOCAL)
+    if OUT.exists():
+        targets.append(OUT)
+
+    if not targets:
+        warn("nothing to clean")
+        return
+
+    print(bold("--full-clean will remove:"))
+    for t in targets:
+        print(f"  {t}")
+    print(dim(f"  (other files under {OBMC_HOME} are left untouched)"))
+
+    if not assume_yes:
+        try:
+            answer = input(red("Wipe everything? [y/N] ")).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            print("aborted.")
+            return
+
+    for t in targets:
+        shutil.rmtree(t, ignore_errors=True)
+        print(green(f"removed {t}"))
+
+
+def toposort(pkgs):
+    by_name = {p["name"]: p for p in pkgs}
+    order, seen = [], set()
+
+    def visit(n, stack):
+        if n in seen:
+            return
+        if n in stack:
+            raise RuntimeError(f"dependency cycle involving {n}")
+        for d in by_name[n].get("requires", []):
+            if d not in by_name:
+                raise RuntimeError(f"{n} requires '{d}' which is not in the manifest")
+            visit(d, stack | {n})
+        seen.add(n)
+        order.append(by_name[n])
+
+    for p in pkgs:
+        visit(p["name"], set())
+    return order
+
+
+def src_dir(cfg):
+    return OBMC_HOME / (cfg.get("subdir") or cfg["name"])
+
+
+def install_tree(builder, bld, dst):
+    """Install the build tree into DESTDIR=dst (meson or cmake)."""
+    if builder == "meson":
+        sh(["meson", "install", "-C", str(bld), "--destdir", str(dst)])
+    elif builder == "cmake":
+        env2 = dict(ENV, DESTDIR=str(dst))
+        sh(["cmake", "--install", str(bld)], env=env2)
+    else:
+        raise RuntimeError(f"install_tree does not support builder={builder}")
+
+
+# --- Phases -----------------------------------------------------------------
+def do_checkout(cfg):
+    name = cfg["name"]
+    src = src_dir(cfg)
+    source = cfg.get("source", "git")
+    if source == "git":
+        if not (src / ".git").exists():
+            sh(["git", "clone", cfg["git"], str(src)])
+        sh(["git", "-C", str(src), "fetch", "--all", "--tags", "--prune"])
+        sh(["git", "-C", str(src), "checkout", "--force", cfg["ref"]])
+        if cfg.get("submodules"):
+            sh(["git", "-C", str(src), "submodule", "update",
+                "--init", "--recursive"])
+    elif source == "tarball":
+        if src.exists():
+            log(name, f"source already present in {src}, skipping download")
+        else:
+            url = cfg["url"]
+            archive = OBMC_HOME / Path(url).name
+            OBMC_HOME.mkdir(parents=True, exist_ok=True)
+            sh(["wget", "-O", str(archive), url])
+            sh(["tar", "xf", str(archive), "-C", str(OBMC_HOME)])
+            archive.unlink(missing_ok=True)
+            if not src.exists():
+                raise RuntimeError(
+                    f"after extraction {src} was not found; check 'subdir'")
+    else:
+        raise RuntimeError(f"unknown source: {source}")
+
+    # Hooks run once the source is ready (wrapdb patches, extra downloads, ...).
+    # They run in OBMC_HOME so they can overlay onto the source directory.
+    for h in cfg.get("hooks", {}).get("post_checkout", []):
+        shell(render(h, _ctx(cfg)), cwd=OBMC_HOME)
+
+
+def do_setup(cfg):
+    """meson setup / cmake configure. Always recreates the build dir."""
+    src = src_dir(cfg)
+    bld = src / "build"
+    builder = cfg.get("builder", "meson")
+    buildtype = cfg.get("buildtype", "release")
+    ctx = _ctx(cfg)
+    meson_opts = [render(o, ctx) for o in cfg.get("meson_opts", [])]
+    cmake_opts = [render(o, ctx) for o in cfg.get("cmake_opts", [])]
+    if bld.exists():
+        shutil.rmtree(bld)
+    if builder == "meson":
+        wrap_mode = cfg.get("wrap_mode", "nofallback")
+        sh(["meson", "setup", str(bld), str(src),
+            f"--buildtype={buildtype}", "--prefix=/usr",
+            f"--wrap-mode={wrap_mode}", *meson_opts])
+    elif builder == "cmake":
+        bt = {"release": "Release", "debug": "Debug"}.get(buildtype, "Release")
+        sh(["cmake", "-B", str(bld), "-S", str(src),
+            "-DCMAKE_INSTALL_PREFIX=/usr", f"-DCMAKE_BUILD_TYPE={bt}",
+            *cmake_opts])
+    else:
+        raise RuntimeError(f"do_setup does not support builder={builder}")
+
+
+def do_compile(cfg):
+    bld = src_dir(cfg) / "build"
+    builder = cfg.get("builder", "meson")
+    if builder == "meson":
+        sh(["ninja", "-C", str(bld)])
+    elif builder == "cmake":
+        sh(["cmake", "--build", str(bld), "-j"])
+    else:
+        raise RuntimeError(f"do_compile does not support builder={builder}")
+
+
+def do_install(cfg):
+    """Install into sysroot (always) and into stage (only when fpm needs it)."""
+    name = cfg["name"]
+    src = src_dir(cfg)
+    bld = src / "build"
+    stage = src / "stage"
+    builder = cfg.get("builder", "meson")
+    packager = cfg.get("packager", "fpm")
+    sysroot = OBMC_LOCAL
+    ctx = _ctx(cfg)
+
+    need_stage = (packager == "fpm")
+    if need_stage:
+        if stage.exists():
+            shutil.rmtree(stage)
+        install_tree(builder, bld, stage)
+    install_tree(builder, bld, sysroot)
+
+    for h in cfg.get("hooks", {}).get("post_install", []):
+        shell(render(h, ctx), cwd=src)
+
+
+def do_script_build(cfg):
+    """builder=script: setup + compile + install as a single shell sequence."""
+    src = src_dir(cfg)
+    ctx = _ctx(cfg)
+    for cmd in cfg.get("build_script", []):
+        shell(render(cmd, ctx), cwd=src)
+
+
+def do_package(cfg, defaults):
+    name = cfg["name"]
+    src = src_dir(cfg)
+    bld = src / "build"
+    stage = src / "stage"
+    version = pkg_version(cfg)
+    packager = cfg.get("packager", "fpm")
+
+    if packager == "none":
+        warn(f"{name}: packager=none, no RPM produced")
+        return
+
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    if packager == "fpm":
+        fpm_src = src / cfg.get("fpm_source", "stage")
+        fpm_prefix = cfg.get("fpm_prefix", "/")
+        if not fpm_src.exists() or not any(fpm_src.iterdir()):
+            raise RuntimeError(f"fpm source '{fpm_src}' is empty for {name}: "
+                               f"re-run with --force {name}")
+        # rpm_prefix: manifest 'defaults' value, overridable per package.
+        # Affects only the RPM name and output filename, not the internal
+        # graph (requires/markers/sysroot) nor the rpm_requires you write.
+        prefix = cfg.get("rpm_prefix", defaults.get("rpm_prefix", ""))
+        rpm_name = f"{prefix}{name}"
+        rpm_path = OUT / f"{rpm_name}-{version}.aarch64.rpm"
+        rpm_path.unlink(missing_ok=True)
+        args = [defaults.get("fpm", "fpm"), "-s", "dir", "-t", "rpm",
+                "-n", rpm_name, "-v", version, "-a", "aarch64", "-p", str(rpm_path)]
+        if defaults.get("vendor"):
+            args += ["--vendor", defaults["vendor"]]
+        if defaults.get("maintainer"):
+            args += ["--maintainer", defaults["maintainer"]]
+        for dep in cfg.get("rpm_requires", []):
+            args += ["-d", dep]
+        args.append(f"{fpm_src}/={fpm_prefix}")
+        sh(args, cwd=src)
+
+    elif packager == "cpack":
+        cfgfile = bld / "CPackConfig.cmake"
+        if not cfgfile.exists():
+            raise RuntimeError(f"{cfgfile} missing; does the project include CPack?")
+        sh(["cpack", "-G", "RPM", "--config", str(cfgfile)], cwd=bld)
+        produced = sorted(bld.glob("*.rpm"), key=lambda p: p.stat().st_mtime)
+        if not produced:
+            raise RuntimeError(f"cpack produced no RPM in {bld}")
+        for r in produced:
+            shutil.copy2(r, OUT / r.name)
+            log(name, f"RPM: {OUT / r.name}")
+    else:
+        raise RuntimeError(f"unknown packager: {packager}")
+
+
+def _ctx(cfg):
+    src = src_dir(cfg)
+    return {"src": src, "build": src / "build", "stage": src / "stage",
+            "sysroot": OBMC_LOCAL, "home": OBMC_HOME,
+            "version": pkg_version(cfg), "name": cfg["name"]}
+
+
+# --- Per-package orchestration ----------------------------------------------
+def build(cfg, defaults, only_checkout=False):
+    name = cfg["name"]
+    s = sig(cfg)
+    builder = cfg.get("builder", "meson")
+    phases = SCRIPT_PHASES if builder == "script" else MESON_PHASES
+    if only_checkout:
+        phases = ["checkout"]
+
+    for phase in phases:
+        if is_done(name, phase, s):
+            print(dim(f"[{name}] {phase}: skip (cached)"), flush=True)
+            continue
+        log(name, bold(f"── {phase} ──"))
+        if phase == "checkout":
+            do_checkout(cfg)
+        elif phase == "setup":
+            do_setup(cfg)
+        elif phase == "compile":
+            do_compile(cfg)
+        elif phase == "install":
+            do_install(cfg)
+        elif phase == "build":
+            do_script_build(cfg)
+        elif phase == "package":
+            do_package(cfg, defaults)
+        set_done(name, phase, s)
+
+    log(name, green("OK"))
+
+
+# --- CLI --------------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(description="OpenBMC RPM orchestrator")
+    ap.add_argument("-m", "--manifest", default="packages.yaml")
+    ap.add_argument("--only", nargs="+", metavar="PKG",
+                    help="build only these packages (plus their dependencies)")
+    ap.add_argument("--from", dest="from_pkg", metavar="PKG",
+                    help="restart from this package in the topological order")
+    ap.add_argument("--force", nargs="+", metavar="PKG",
+                    help="'all' or a list: clear markers before building")
+    ap.add_argument("--clean", nargs="+", metavar="PKG",
+                    help="remove markers + source + RPM for these packages "
+                         "(as if never built), then exit; sysroot is untouched")
+    ap.add_argument("--full-clean", action="store_true",
+                    help="wipe the whole environment (state, sources, sysroot, "
+                         "RPMs) as if nothing was ever built, then exit")
+    ap.add_argument("--yes", action="store_true",
+                    help="skip the confirmation prompt for --clean/--full-clean")
+    ap.add_argument("--checkout-only", action="store_true",
+                    help="run only the checkout phase for all packages (for gen_deps)")
+    ap.add_argument("--list", action="store_true",
+                    help="print order and state, then exit")
+    args = ap.parse_args()
+
+    data = yaml.safe_load(Path(args.manifest).read_text())
+    defaults = data.get("defaults", {})
+    global DEFAULTS
+    DEFAULTS = defaults
+    order = toposort(data["packages"])
+    by_name = {p["name"]: p for p in order}
+
+    if args.full_clean:
+        full_clean(data["packages"], assume_yes=args.yes)
+        return
+
+    if args.clean:
+        for n in args.clean:
+            if n not in by_name:
+                sys.exit(f"unknown package: {n}")
+        for n in args.clean:
+            clean_pkg(by_name[n], defaults=defaults, assume_yes=args.yes)
+        return
+
+    if args.only:
+        wanted, stack = set(), list(args.only)
+        while stack:
+            n = stack.pop()
+            if n not in by_name:
+                sys.exit(f"unknown package: {n}")
+            if n in wanted:
+                continue
+            wanted.add(n)
+            stack += by_name[n].get("requires", [])
+        order = [p for p in order if p["name"] in wanted]
+
+    if args.from_pkg:
+        names = [p["name"] for p in order]
+        if args.from_pkg not in names:
+            sys.exit(f"--from: package not in queue: {args.from_pkg}")
+        order = order[names.index(args.from_pkg):]
+
+    if args.force:
+        targets = [p["name"] for p in order] if "all" in args.force else args.force
+        for n in targets:
+            clear(n)
+            log(n, "markers cleared (--force)")
+
+    if args.list:
+        for p in order:
+            s = sig(p)
+            phs = SCRIPT_PHASES if p.get("builder") == "script" else MESON_PHASES
+            done = [ph for ph in phs if is_done(p["name"], ph, s)]
+            state = green("/".join(done)) if done else dim("-")
+            name_col = f"{p['name']:<50}"
+            print(f"{bold(name_col)} {p.get('builder','meson'):<7} "
+                  f"{p.get('packager','fpm'):<6} [{state}]")
+        return
+
+    print(dim(f"OBMC_HOME={OBMC_HOME}\nOBMC_LOCAL={OBMC_LOCAL}\nOUT={OUT}\n"))
+    print(bold("Order: ") + " -> ".join(p["name"] for p in order), "\n")
+
+    for p in order:
+        try:
+            build(p, defaults, only_checkout=args.checkout_only)
+        except subprocess.CalledProcessError as ex:
+            sys.exit(red(f"\nFAILED on '{p['name']}' (exit {ex.returncode}). "
+                         f"Re-run the same command to resume from this phase."))
+        except KeyboardInterrupt:
+            sys.exit(yellow(f"\nInterrupted during '{p['name']}'. Re-run to resume."))
+
+
+if __name__ == "__main__":
+    main()

@@ -346,6 +346,63 @@ packages:
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-logging", "boost", "libgpiod-devel"]
     requires: [sdbusplus, phosphor-logging, boost, libgpiod-devel]
 
+  - name: phosphor-host-ipmid
+    git: https://github.com/openbmc/phosphor-host-ipmid
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-sdeventplus", "boost", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, sdeventplus, boost, phosphor-dbus-interfaces, phosphor-logging]
+
+  - name: phosphor-net-ipmid
+    git: https://github.com/openbmc/phosphor-net-ipmid
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-host-ipmid", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-host-ipmid, phosphor-logging]
+
+  - name: phosphor-time-manager
+    git: https://github.com/openbmc/phosphor-time-manager
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+
+  - name: phosphor-pid-control
+    git: https://github.com/openbmc/phosphor-pid-control
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-phosphor-host-ipmid"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, phosphor-host-ipmid]
+
+    # add exprtk #
+  - name: phosphor-virtual-sensor
+    git: https://github.com/openbmc/phosphor-virtual-sensor
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+
+  - name: spdm
+    git: https://github.com/openbmc/spdm
+    ref: main
+    meson_opts: ["-Dtests=disabled"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+
+  - name: libmctp
+    git: https://github.com/openbmc/spdm
+    ref: main
+    meson_opts: []
+    rpm_prefix: "openbmc-"
+    rpm_requires: []
+    requires: []
+
       #  - name: webui-vue
       #    git: https://github.com/openbmc/webui-vue
       #    ref: master

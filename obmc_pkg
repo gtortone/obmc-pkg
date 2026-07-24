@@ -70,10 +70,37 @@ def make_env() -> dict:
     return e
 
 
+def env_script() -> str:
+    """Return a copy-pasteable shell block that reproduces make_env() portably.
+    Uses ${VAR:+:$VAR} so prepends append safely to the caller's own values."""
+    p = str(OBMC_LOCAL)
+    lines = [
+        "# --- build environment (source or paste before running) ---",
+        f'export OBMC_HOME="{OBMC_HOME}"',
+        f'export OBMC_LOCAL="{OBMC_LOCAL}"',
+        f'export PATH="{p}/usr/bin:{p}/usr/local/bin${{PATH:+:$PATH}}"',
+        f'export PKG_CONFIG_PATH="{p}/usr/lib/pkgconfig:{p}/usr/lib64/pkgconfig:'
+        f'{p}/usr/share/pkgconfig:/usr/lib64/pkgconfig:/usr/lib/pkgconfig:'
+        '/usr/share/pkgconfig"',
+        f'export CMAKE_PREFIX_PATH="{p}"',
+        f'export LD_LIBRARY_PATH="{p}/usr/lib:{p}/usr/lib64${{LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}}"',
+        f'export LIBRARY_PATH="{p}/usr/lib:{p}/usr/lib64${{LIBRARY_PATH:+:$LIBRARY_PATH}}"',
+        f'export C_INCLUDE_PATH="{p}/usr/include${{C_INCLUDE_PATH:+:$C_INCLUDE_PATH}}"',
+        f'export CPLUS_INCLUDE_PATH="{p}/usr/include${{CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}}"',
+        f'export BOOST_ROOT="{p}/usr"',
+        f'export PYTHONPATH="{p}/usr/local/lib/{PY_SITE}/site-packages${{PYTHONPATH:+:$PYTHONPATH}}"',
+    ]
+    return "\n".join(lines)
+
+
 ENV = make_env()
 
 # Manifest 'defaults' block, populated in main(). Holds e.g. default_version.
 DEFAULTS = {}
+
+# When True, sh()/shell() print commands instead of running them, and phase
+# functions skip real filesystem mutations. Set by --dry-run.
+DRY_RUN = False
 
 
 def pkg_version(cfg) -> str:
@@ -109,11 +136,22 @@ def warn(msg):
 
 
 def sh(cmd, cwd=None, env=None):
-    print(dim("+ " + " ".join(map(str, cmd))), flush=True)
+    prefix = "  " if DRY_RUN else dim("+ ")
+    line = " ".join(map(str, cmd))
+    if cwd:
+        line = f"(cd {cwd} && {line})"
+    print((prefix + line) if DRY_RUN else dim("+ " + " ".join(map(str, cmd))),
+          flush=True)
+    if DRY_RUN:
+        return
     subprocess.run(cmd, check=True, cwd=cwd, env=env or ENV)
 
 
 def shell(script, cwd=None):
+    if DRY_RUN:
+        line = f"(cd {cwd} && {script})" if cwd else script
+        print("  " + line, flush=True)
+        return
     print(dim("+ (sh) " + script), flush=True)
     subprocess.run(["bash", "-euo", "pipefail", "-c", script],
                    check=True, cwd=cwd, env=ENV)
@@ -313,10 +351,11 @@ def do_checkout(cfg):
             OBMC_HOME.mkdir(parents=True, exist_ok=True)
             sh(["wget", "-O", str(archive), url])
             sh(["tar", "xf", str(archive), "-C", str(OBMC_HOME)])
-            archive.unlink(missing_ok=True)
-            if not src.exists():
-                raise RuntimeError(
-                    f"after extraction {src} was not found; check 'subdir'")
+            if not DRY_RUN:
+                archive.unlink(missing_ok=True)
+                if not src.exists():
+                    raise RuntimeError(
+                        f"after extraction {src} was not found; check 'subdir'")
     else:
         raise RuntimeError(f"unknown source: {source}")
 
@@ -335,7 +374,7 @@ def do_setup(cfg):
     ctx = _ctx(cfg)
     meson_opts = [render(o, ctx) for o in cfg.get("meson_opts", [])]
     cmake_opts = [render(o, ctx) for o in cfg.get("cmake_opts", [])]
-    if bld.exists():
+    if bld.exists() and not DRY_RUN:
         shutil.rmtree(bld)
     if builder == "meson":
         wrap_mode = cfg.get("wrap_mode", "nofallback")
@@ -375,7 +414,7 @@ def do_install(cfg):
 
     need_stage = (packager == "fpm")
     if need_stage:
-        if stage.exists():
+        if stage.exists() and not DRY_RUN:
             shutil.rmtree(stage)
         install_tree(builder, bld, stage)
     install_tree(builder, bld, sysroot)
@@ -404,12 +443,13 @@ def do_package(cfg, defaults):
         warn(f"{name}: packager=none, no RPM produced")
         return
 
-    OUT.mkdir(parents=True, exist_ok=True)
+    if not DRY_RUN:
+        OUT.mkdir(parents=True, exist_ok=True)
 
     if packager == "fpm":
         fpm_src = src / cfg.get("fpm_source", "stage")
         fpm_prefix = cfg.get("fpm_prefix", "/")
-        if not fpm_src.exists() or not any(fpm_src.iterdir()):
+        if not DRY_RUN and (not fpm_src.exists() or not any(fpm_src.iterdir())):
             raise RuntimeError(f"fpm source '{fpm_src}' is empty for {name}: "
                                f"re-run with --force {name}")
         # rpm_prefix: manifest 'defaults' value, overridable per package.
@@ -418,7 +458,8 @@ def do_package(cfg, defaults):
         prefix = cfg.get("rpm_prefix", defaults.get("rpm_prefix", ""))
         rpm_name = f"{prefix}{name}"
         rpm_path = OUT / f"{rpm_name}-{version}.aarch64.rpm"
-        rpm_path.unlink(missing_ok=True)
+        if not DRY_RUN:
+            rpm_path.unlink(missing_ok=True)
         args = [defaults.get("fpm", "fpm"), "-s", "dir", "-t", "rpm",
                 "-n", rpm_name, "-v", version, "-a", "aarch64", "-p", str(rpm_path)]
         if defaults.get("vendor"):
@@ -432,6 +473,10 @@ def do_package(cfg, defaults):
 
     elif packager == "cpack":
         cfgfile = bld / "CPackConfig.cmake"
+        if DRY_RUN:
+            sh(["cpack", "-G", "RPM", "--config", str(cfgfile)], cwd=bld)
+            print(dim(f"  # then copy the produced *.rpm from {bld} into {OUT}"))
+            return
         if not cfgfile.exists():
             raise RuntimeError(f"{cfgfile} missing; does the project include CPack?")
         sh(["cpack", "-G", "RPM", "--config", str(cfgfile)], cwd=bld)
@@ -453,34 +498,59 @@ def _ctx(cfg):
 
 
 # --- Per-package orchestration ----------------------------------------------
+def run_phase(cfg, defaults, phase):
+    if phase == "checkout":
+        do_checkout(cfg)
+    elif phase == "setup":
+        do_setup(cfg)
+    elif phase == "compile":
+        do_compile(cfg)
+    elif phase == "install":
+        do_install(cfg)
+    elif phase == "build":
+        do_script_build(cfg)
+    elif phase == "package":
+        do_package(cfg, defaults)
+
+
+def phases_for(cfg):
+    builder = cfg.get("builder", "meson")
+    return SCRIPT_PHASES if builder == "script" else MESON_PHASES
+
+
 def build(cfg, defaults, only_checkout=False):
     name = cfg["name"]
     s = sig(cfg)
-    builder = cfg.get("builder", "meson")
-    phases = SCRIPT_PHASES if builder == "script" else MESON_PHASES
-    if only_checkout:
-        phases = ["checkout"]
+    phases = ["checkout"] if only_checkout else phases_for(cfg)
 
     for phase in phases:
         if is_done(name, phase, s):
             print(dim(f"[{name}] {phase}: skip (cached)"), flush=True)
             continue
         log(name, bold(f"── {phase} ──"))
-        if phase == "checkout":
-            do_checkout(cfg)
-        elif phase == "setup":
-            do_setup(cfg)
-        elif phase == "compile":
-            do_compile(cfg)
-        elif phase == "install":
-            do_install(cfg)
-        elif phase == "build":
-            do_script_build(cfg)
-        elif phase == "package":
-            do_package(cfg, defaults)
+        run_phase(cfg, defaults, phase)
         set_done(name, phase, s)
 
     log(name, green("OK"))
+
+
+def dry_run_pkg(cfg, defaults):
+    """Print every command for all phases of one package, without running them
+    and ignoring checkpoint markers."""
+    global DRY_RUN
+    DRY_RUN = True
+    name = cfg["name"]
+    print(bold(f"# dry-run: {name}  "
+               f"(builder={cfg.get('builder','meson')}, "
+               f"packager={cfg.get('packager','fpm')})"))
+    print(dim(f"# OBMC_HOME={OBMC_HOME}  OBMC_LOCAL={OBMC_LOCAL}  OUT={OUT}\n"))
+    print(env_script())
+    print()
+    for phase in phases_for(cfg):
+        print(bold(f"── {phase} ──"))
+        run_phase(cfg, defaults, phase)
+        print()
+    DRY_RUN = False
 
 
 # --- CLI --------------------------------------------------------------------
@@ -503,6 +573,9 @@ def main():
                     help="skip the confirmation prompt for --clean/--full-clean")
     ap.add_argument("--checkout-only", action="store_true",
                     help="run only the checkout phase for all packages (for gen_deps)")
+    ap.add_argument("--dry-run", metavar="PKG",
+                    help="print all commands for this package (checkout..package) "
+                         "without running them, then exit")
     ap.add_argument("--list", action="store_true",
                     help="print order and state, then exit")
     args = ap.parse_args()
@@ -516,6 +589,12 @@ def main():
 
     if args.full_clean:
         full_clean(data["packages"], assume_yes=args.yes)
+        return
+
+    if args.dry_run:
+        if args.dry_run not in by_name:
+            sys.exit(f"unknown package: {args.dry_run}")
+        dry_run_pkg(by_name[args.dry_run], defaults)
         return
 
     if args.clean:

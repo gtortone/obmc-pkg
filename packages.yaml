@@ -38,6 +38,18 @@ packages:
     cmake_opts: ["-DBUILD_TESTING=NO"]
     requires: []
 
+  - name: exprtk 
+    git: https://github.com/ArashPartow/exprtk
+    ref: release
+    version: "1.0"
+    builder: script
+    packager: fpm 
+    build_script:
+      - "install -d stage/usr/include"
+      - "install -m 0644 exprtk.hpp stage/usr/include/exprtk.hpp"
+      - "install -d {sysroot}/usr/include"
+      - "install -m 0644 exprtk.hpp {sysroot}/usr/include/exprtk.hpp"
+
   - name: stdexec
     git: https://github.com/NVIDIA/stdexec
     ref: nvhpc-26.05
@@ -378,14 +390,13 @@ packages:
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-phosphor-host-ipmid"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, phosphor-host-ipmid]
 
-    # add exprtk #
   - name: phosphor-virtual-sensor
     git: https://github.com/openbmc/phosphor-virtual-sensor
     ref: master
     meson_opts: ["-Dtests=disabled"]
     rpm_prefix: "openbmc-"
-    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
-    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+    rpm_requires: ["exprtk", "openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [exprtk, sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
 
   - name: spdm
     git: https://github.com/openbmc/spdm

@@ -210,7 +210,7 @@ packages:
   - name: bmcweb
     git: https://github.com/openbmc/bmcweb
     ref: master
-    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled"]
+    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled"]
     rpm_prefix: "openbmc-"
     requires: [sdbusplus, boost]
 
@@ -414,15 +414,15 @@ packages:
     rpm_requires: []
     requires: []
 
-      #  - name: webui-vue
-      #    git: https://github.com/openbmc/webui-vue
-      #    ref: master
-      #    builder: script
-      #    packager: fpm
-      #    fpm_source: dist               # fpm packages dist/, not stage/
-      #    fpm_prefix: /usr/share/www/     # destination on the target
-      #    rpm_prefix: "openbmc-"
-      #    requires: []
-      #    build_script:
-      #      - "npm --loglevel info install"
-      #      - "npm run build"
+  - name: webui-vue
+    git: https://github.com/openbmc/webui-vue
+    ref: master
+    builder: script
+    packager: fpm
+    fpm_source: dist               # fpm packages dist/, not stage/
+    fpm_prefix: /usr/share/www/     # destination on the target
+    rpm_prefix: "openbmc-"
+    requires: []
+    build_script:
+      - "npm --loglevel info install"
+      - "npm run build"

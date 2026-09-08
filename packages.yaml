@@ -26,8 +26,8 @@ packages:
     packager: fpm
     build_script:
       - "./bootstrap.sh --prefix={sysroot}/usr"
-      - "./b2 -j$(nproc) --prefix={sysroot}/usr install"
-      - "./b2 -j$(nproc) --prefix={src}/stage/usr install"
+      - "./b2 -j$(nproc) cxxflags=-fPIC --prefix={sysroot}/usr install"
+      - "./b2 -j$(nproc) cxxflags=-fPIC --prefix={src}/stage/usr install"
 
   - name: function2
     git: https://github.com/Naios/function2

@@ -422,11 +422,18 @@ packages:
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
 
   - name: libmctp
-    git: https://github.com/openbmc/spdm
-    ref: main
-    meson_opts: []
+    git: https://github.com/openbmc/libmctp
+    ref: master
+    meson_opts: ["-Dtests=disabled"]
     rpm_prefix: "openbmc-"
-    rpm_requires: []
+    rpm_requires: ["systemd-libs"]
+    requires: []
+
+  - name: mctp-tools
+    git: https://github.com/CodeConstruct/mctp
+    ref: main
+    meson_opts: ["-Dtests=false"]
+    rpm_requires: ["systemd-libs"]
     requires: []
 
   - name: webui-vue

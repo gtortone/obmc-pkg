@@ -193,7 +193,7 @@ packages:
   - name: pldm
     git: https://github.com/openbmc/pldm
     ref: master
-    meson_opts: ["-Dtests=disabled"]
+    meson_opts: ["-Dtransport-implementation=af-mctp", "-Dtests=disabled"]
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-libcper", "openbmc-sdbusplus", "openbmc-sdeventplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-libpldm", "openbmc-stdplus"]
     requires: [libcper, sdbusplus, sdeventplus, phosphor-dbus-interfaces, phosphor-logging, libpldm, stdplus]

@@ -1,0 +1,127 @@
+packages:
+  bmcweb:
+    rev: 10cf50dca112b27176dc5734126983ad37ba2c04
+    version: 2.18.0
+  dbus-sensors:
+    rev: 021261ce7a0b6686e4f040f7212718ba74d15137
+    version: 2.18.0
+  entity-manager:
+    rev: 724a34ef4aa2b801b01faf850050ba4fb5932a7d
+    version: 2.18.0
+  gpioplus:
+    rev: 3a27d32b33f6f5d3ead59eae1eb5cce1869cf3b4
+    version: 2.18.0
+  libcper:
+    rev: 1c321faa10c96206f897b5cf29903934df842033
+    version: 2.18.0
+  libmctp:
+    rev: b5f74a7c6fde1886101f2fd9a1385febc66306d7
+    version: 2.18.0
+  libpeci:
+    rev: e92985a190429ef3620be8a0043bfddf0629fd05
+    version: 2.18.0
+  libpldm:
+    rev: 59edcb14c996fd701e3065e3e9106bedc2d3befb
+    version: 2.18.0
+  obmc-console:
+    rev: 375786fc0e8ce34d72bafffb03a28689df94fb62
+    version: 2.18.0
+  phosphor-buttons:
+    rev: 14c1e96445898800fb36b3cab4235eeddbc59535
+    version: 2.18.0
+  phosphor-certificate-manager:
+    rev: 48aab98b3e2011f0bfe08295ea8bf75ad2ca66f7
+    version: 2.18.0
+  phosphor-dbus-interfaces:
+    rev: 9ca8d347eddb12250a17ddbdff9e52de92f8d7e9
+    version: 2.18.0
+  phosphor-dbus-monitor:
+    rev: 9c2f94e155b86ef234f2cc8aa39d4e18a15a0561
+    version: 2.18.0
+  phosphor-debug-collector:
+    rev: 3fdc43151f7dd5984002a8e3cf7f430ba1816f2c
+    version: 2.18.0
+  phosphor-fan-presence:
+    rev: 5d941415540781ff5c2ba25fd8f210998c213b8f
+    version: 2.18.0
+  phosphor-gpio-monitor:
+    rev: c087fa76fb457790c93cfebc0acaaf14bf5023ad
+    version: 2.18.0
+  phosphor-health-monitor:
+    rev: ba29dbdd04a96a46e1972641c20bf5a8e930ed8f
+    version: 2.18.0
+  phosphor-host-ipmid:
+    rev: ec9e8bbff4a5d05bb75c1ca26410072648e3079e
+    version: 2.18.0
+  phosphor-hwmon:
+    rev: a385d8999fa1893690e150383c93b2b91f43d339
+    version: 2.18.0
+  phosphor-led-manager:
+    rev: 858e5731ff4a058bcf79094f4b948d0b36d127b7
+    version: 2.18.0
+  phosphor-led-sysfs:
+    rev: f8548eebf92c37de7fefc7ca697241aeb5b7561a
+    version: 2.18.0
+  phosphor-logging:
+    rev: 91f6d3a57420621b035308b2cb8213be84bc93f2
+    version: 2.18.0
+  phosphor-net-ipmid:
+    rev: 8207f9eab421a1bddc8dd6ba92d8eb35fecc0278
+    version: 2.18.0
+  phosphor-networkd:
+    rev: 618ac419947e8036adef91c2add8cbecac201b71
+    version: 2.18.0
+  phosphor-objmgr:
+    rev: 1e3f7810c7e19008283937ab12a69fdce0d2df8c
+    version: 2.18.0
+  phosphor-pid-control:
+    rev: 841531c23f5e8f1fa3b50133d7063bd2f3ffba56
+    version: 2.18.0
+  phosphor-power:
+    rev: 72e584c5bae66b00a55e513dffc410e510348c26
+    version: 2.18.0
+  phosphor-power-control:
+    rev: 09fdcb592a9320b9363fb1c7fec872a69ac95189
+    version: 2.18.0
+  phosphor-settingsd:
+    rev: 3c3319aafeab79375623f5dad179a252cbdc2407
+    version: 2.18.0
+  phosphor-snmp:
+    rev: d30072c41a2eb192fd5bdbd162c19d4fd3617ffd
+    version: 2.18.0
+  phosphor-state-manager:
+    rev: ff85df60109ddfb9d56e2a887c6aed83d16c3e3c
+    version: 2.18.0
+  phosphor-time-manager:
+    rev: 134c0a3ca8682d0f98f5c2b24c5548e4981cc401
+    version: 2.18.0
+  phosphor-user-manager:
+    rev: 8ad64b03b7f56907d6871086c82e6289d0ea7df1
+    version: 2.18.0
+  phosphor-virtual-sensor:
+    rev: 04605fa2ad256f0bdedcfc1f9bcd1f24fdc4cd93
+    version: 2.18.0
+  pldm:
+    rev: 93ad795e2f1c7e7e2859d88c2b2b3448c4cd5970
+    version: 2.18.0
+  sdbusplus:
+    rev: 94beff8b037dc80f4df0e24af70c9a2f44a52b47
+    version: 2.18.0
+  sdeventplus:
+    rev: a97cdd1a516c8432ca3fd7a331a9a7e70838ba77
+    version: 2.18.0
+  stdplus:
+    rev: be32aee33cdef4d99d664d5e13cfb91677097224
+    version: 2.18.0
+  telemetry:
+    rev: 3c8aa74d87f885c6a3bbf71c00d93699b5e91ab1
+    version: 2.18.0
+  webui-vue:
+    rev: 34e78de5a403f8f79d2efb881ee7b37619a3e6b9
+    version: 2.18.0
+  x86-power-control:
+    rev: 2947720bc30cdc081ebe2ecaba093268cf115b90
+    version: 2.18.0
+release: 2.18.0
+unresolved:
+- spdm

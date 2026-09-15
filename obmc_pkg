@@ -293,6 +293,26 @@ def full_clean(pkgs, assume_yes=False):
         print(green(f"removed {t}"))
 
 
+def apply_lock(pkgs, lock_path):
+    """Override ref and version from a release lockfile (see gen_lock.py) for the
+    packages it lists. Packages absent from the lock keep their manifest values."""
+    lock = yaml.safe_load(Path(lock_path).read_text())
+    locked = lock.get("packages", {})
+    release = lock.get("release")
+    applied = 0
+    for cfg in pkgs:
+        entry = locked.get(cfg["name"])
+        if not entry:
+            continue
+        if entry.get("rev"):
+            cfg["ref"] = entry["rev"]
+        if entry.get("version"):
+            cfg["version"] = entry["version"]
+        applied += 1
+    print(dim(f"# lock {lock_path}: release {release}, pinned {applied} package(s)"),
+          flush=True)
+
+
 def toposort(pkgs):
     by_name = {p["name"]: p for p in pkgs}
     order, seen = [], set()
@@ -557,6 +577,9 @@ def dry_run_pkg(cfg, defaults):
 def main():
     ap = argparse.ArgumentParser(description="OpenBMC RPM orchestrator")
     ap.add_argument("-m", "--manifest", default="packages.yaml")
+    ap.add_argument("--lock", metavar="FILE",
+                    help="release lockfile (see gen_lock.py): pins ref+version "
+                         "for the OpenBMC packages it lists")
     ap.add_argument("--only", nargs="+", metavar="PKG",
                     help="build only these packages (plus their dependencies)")
     ap.add_argument("--from", dest="from_pkg", metavar="PKG",
@@ -584,6 +607,8 @@ def main():
     defaults = data.get("defaults", {})
     global DEFAULTS
     DEFAULTS = defaults
+    if args.lock:
+        apply_lock(data["packages"], args.lock)
     order = toposort(data["packages"])
     by_name = {p["name"]: p for p in order}
 

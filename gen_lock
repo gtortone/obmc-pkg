@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""
+Generate a release lockfile pinning each OpenBMC package to the commit that the
+openbmc/openbmc meta-repo ships for a given release tag (e.g. 2.18).
+
+The single meta-repo openbmc/openbmc carries, per release tag, Yocto recipes with
+an SRCREV (the commit SHA) for every component. Individual component repos have no
+release tags of their own, so we resolve them here.
+
+Usage:
+    python3 gen_lock.py 2.18                    # -> lock-2.18.yaml
+    python3 gen_lock.py 2.18 -o mylock.yaml
+    python3 gen_lock.py 2.18 --meta /path/to/openbmc   # reuse an existing clone
+
+Which packages are pinned: those in packages.yaml whose git URL contains
+'github.com/openbmc/'. Everything else (boost, valijson, stdexec, ...) is left out
+of the lock and keeps its manifest ref/version.
+
+Output lockfile format:
+    release: "2.18"
+    packages:
+      entity-manager: {rev: <sha>, version: "2.18"}
+      ...
+    unresolved: [<names the script could not resolve>]
+
+Then build a release with:
+    python3 obmc_pkg.py --lock lock-2.18.yaml
+"""
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+META_URL = "https://github.com/openbmc/openbmc"
+OBMC_HOME = Path(os.environ.get("OBMC_HOME", Path.home() / "openbmc")).resolve()
+
+# Recipe name overrides for packages whose .bb name differs from the repo name.
+# Fill in as you discover mismatches: manifest_name -> recipe base name.
+RECIPE_OVERRIDES = {
+    "phosphor-settingsd":     "phosphor-settings-manager",
+    "phosphor-buttons":       "obmc-phosphor-buttons",
+    "phosphor-networkd":      "phosphor-network",
+    "phosphor-fan-presence":  "phosphor-fan",
+    "phosphor-power-control":  "obmc-phosphor-power",
+    "phosphor-host-ipmid":    "phosphor-ipmi-host",
+    "phosphor-net-ipmid":     "phosphor-ipmi-net",
+    "spdm":                   "spdm",
+}
+
+# SRCREV assignment, e.g.:  SRCREV = "abc123..."   or   SRCREV:pn-foo = "abc123"
+SRCREV_RE = re.compile(
+    r'^\s*SRCREV(?::[^\s=]+)?\s*[?:+]?=\s*["\']([0-9a-fA-F]{7,40})["\']', re.M)
+
+
+def sh(cmd, cwd=None):
+    print("+", " ".join(map(str, cmd)), flush=True)
+    subprocess.run(cmd, check=True, cwd=cwd)
+
+
+def git_out(cmd, cwd=None):
+    return subprocess.run(cmd, cwd=cwd, check=True,
+                          capture_output=True, text=True).stdout
+
+
+def resolve_tag(meta_dir: Path, release: str) -> str:
+    """Return an existing tag for the requested release, tolerating the
+    2.18 <-> 2.18.0 naming difference. openbmc/openbmc tags look like '2.18.0'."""
+    tags = set(git_out(["git", "-C", str(meta_dir), "tag"]).split())
+    candidates = [release]
+    if re.fullmatch(r"\d+\.\d+", release):        # 2.18 -> also try 2.18.0
+        candidates.append(release + ".0")
+    if re.fullmatch(r"\d+\.\d+\.0", release):     # 2.18.0 -> also try 2.18
+        candidates.append(release[:-2])
+    for c in candidates:
+        if c in tags:
+            return c
+    sample = sorted(t for t in tags if re.match(r"\d+\.\d+", t))[-8:]
+    sys.exit(f"no tag matching '{release}' in {META_URL}\n"
+             f"tried: {', '.join(candidates)}\n"
+             f"recent release tags: {', '.join(sample) or '(none found)'}")
+
+
+def ensure_meta(meta_dir: Path, release: str) -> str:
+    """Clone or update the meta-repo and check out the release tag. Returns the
+    actual tag name used (which may differ from the requested release string)."""
+    if not (meta_dir / ".git").exists():
+        sh(["git", "clone", META_URL, str(meta_dir)])
+    sh(["git", "-C", str(meta_dir), "fetch", "--all", "--tags", "--prune"])
+    tag = resolve_tag(meta_dir, release)
+    sh(["git", "-C", str(meta_dir), "checkout", "--force", tag])
+    return tag
+
+
+def is_openbmc(cfg) -> bool:
+    return "github.com/openbmc/" in (cfg.get("git") or "")
+
+
+def recipe_basename(name: str) -> str:
+    return RECIPE_OVERRIDES.get(name, name)
+
+
+def find_recipe_files(meta_dir: Path, base: str):
+    """All recipe/include files that could carry this component's SRCREV."""
+    hits = []
+    for pattern in (f"{base}_*.bb", f"{base}.bb", f"{base}_git.bb",
+                    f"{base}.inc", f"{base}-rev.inc", f"{base}_*.bbappend"):
+        hits += list(meta_dir.rglob(pattern))
+    # de-dup, keep order
+    seen, out = set(), []
+    for h in hits:
+        if h not in seen:
+            seen.add(h)
+            out.append(h)
+    return out
+
+
+def extract_srcrev(files):
+    """Return the first SRCREV SHA found across the given files."""
+    for f in files:
+        try:
+            text = f.read_text(errors="ignore")
+        except OSError:
+            continue
+        m = SRCREV_RE.search(text)
+        if m:
+            return m.group(1), f
+    return None, None
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Generate an OpenBMC release lockfile")
+    ap.add_argument("release", help="release tag in openbmc/openbmc (e.g. 2.18)")
+    ap.add_argument("-m", "--manifest", default="packages.yaml")
+    ap.add_argument("-o", "--output", help="lockfile path (default: lock-<release>.yaml)")
+    ap.add_argument("--meta", help="path to an openbmc/openbmc checkout to reuse "
+                                   "(default: $OBMC_HOME/openbmc-meta)")
+    args = ap.parse_args()
+
+    meta_dir = Path(args.meta).resolve() if args.meta else OBMC_HOME / "openbmc-meta"
+    out_path = Path(args.output) if args.output else Path(f"lock-{args.release}.yaml")
+
+    data = yaml.safe_load(Path(args.manifest).read_text())
+    targets = [p for p in data["packages"] if is_openbmc(p)]
+    if not targets:
+        sys.exit("no packages with github.com/openbmc/ URLs found in the manifest")
+
+    tag = ensure_meta(meta_dir, args.release)
+
+    locked, unresolved = {}, []
+    for p in targets:
+        name = p["name"]
+        base = recipe_basename(name)
+        files = find_recipe_files(meta_dir, base)
+        rev, src = extract_srcrev(files)
+        if rev:
+            locked[name] = {"rev": rev, "version": tag}
+            print(f"  {name:<32} {rev[:12]}  ({src.relative_to(meta_dir)})")
+        else:
+            unresolved.append(name)
+            print(f"  {name:<32} NOT FOUND")
+
+    lock = {"release": tag, "packages": locked}
+    if unresolved:
+        lock["unresolved"] = unresolved
+
+    out_path.write_text(yaml.safe_dump(lock, sort_keys=True, default_flow_style=False))
+    print(f"\nwrote {out_path}  ({len(locked)} pinned, {len(unresolved)} unresolved)")
+    if unresolved:
+        print("Unresolved packages kept their manifest ref. Fix by either adding a "
+              "RECIPE_OVERRIDES entry in this script, or editing the lockfile by hand.")
+
+
+if __name__ == "__main__":
+    main()

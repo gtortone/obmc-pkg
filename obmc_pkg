@@ -294,23 +294,64 @@ def full_clean(pkgs, assume_yes=False):
 
 
 def apply_lock(pkgs, lock_path):
-    """Override ref and version from a release lockfile (see gen_lock.py) for the
-    packages it lists. Packages absent from the lock keep their manifest values."""
+    """Apply a release lockfile (see gen_lock.py) to the package list, in place:
+    expand {var} references from the lock's 'vars:' section across all string
+    fields, override ref/version for listed packages, and drop packages marked
+    'disabled: true'. A disabled package still required by an active one is an
+    error."""
     lock = yaml.safe_load(Path(lock_path).read_text())
     locked = lock.get("packages", {})
     release = lock.get("release")
+    lock_vars = lock.get("vars", {}) or {}
+
+    # Expand {var} references (only names defined in the lock's 'vars:' section)
+    # across every string field of every package. Build-time placeholders like
+    # {sysroot}/{src} are left untouched because they aren't in lock_vars.
+    def expand(value):
+        if isinstance(value, str):
+            for k, v in lock_vars.items():
+                value = value.replace("{" + k + "}", str(v))
+            return value
+        if isinstance(value, list):
+            return [expand(x) for x in value]
+        if isinstance(value, dict):
+            return {k: expand(x) for k, x in value.items()}
+        return value
+
+    if lock_vars:
+        for cfg in pkgs:
+            for key in list(cfg.keys()):
+                cfg[key] = expand(cfg[key])
+
+    disabled = {name for name, e in locked.items()
+                if isinstance(e, dict) and e.get("disabled")}
+    # A disabled package must not be required by any package we keep.
+    for cfg in pkgs:
+        if cfg["name"] in disabled:
+            continue
+        for dep in cfg.get("requires", []):
+            if dep in disabled:
+                sys.exit(f"'{cfg['name']}' requires '{dep}', which is disabled in "
+                         f"{lock_path}. Remove the requirement or re-enable '{dep}'.")
+
     applied = 0
     for cfg in pkgs:
         entry = locked.get(cfg["name"])
-        if not entry:
+        if not entry or entry.get("disabled"):
             continue
         if entry.get("rev"):
             cfg["ref"] = entry["rev"]
         if entry.get("version"):
             cfg["version"] = entry["version"]
         applied += 1
-    print(dim(f"# lock {lock_path}: release {release}, pinned {applied} package(s)"),
-          flush=True)
+
+    if disabled:
+        pkgs[:] = [c for c in pkgs if c["name"] not in disabled]
+
+    msg = f"# lock {lock_path}: release {release}, pinned {applied} package(s)"
+    if disabled:
+        msg += f", disabled {len(disabled)} ({', '.join(sorted(disabled))})"
+    print(dim(msg), flush=True)
 
 
 def toposort(pkgs):
@@ -577,9 +618,6 @@ def dry_run_pkg(cfg, defaults):
 def main():
     ap = argparse.ArgumentParser(description="OpenBMC RPM orchestrator")
     ap.add_argument("-m", "--manifest", default="packages.yaml")
-    ap.add_argument("--lock", metavar="FILE",
-                    help="release lockfile (see gen_lock.py): pins ref+version "
-                         "for the OpenBMC packages it lists")
     ap.add_argument("--only", nargs="+", metavar="PKG",
                     help="build only these packages (plus their dependencies)")
     ap.add_argument("--from", dest="from_pkg", metavar="PKG",
@@ -607,8 +645,13 @@ def main():
     defaults = data.get("defaults", {})
     global DEFAULTS
     DEFAULTS = defaults
-    if args.lock:
-        apply_lock(data["packages"], args.lock)
+    release = defaults.get("release")
+    if release:
+        lock_path = Path(args.manifest).parent / f"lock-{release}.yaml"
+        if not lock_path.exists():
+            sys.exit(f"defaults.release is '{release}' but {lock_path} is missing.\n"
+                     f"Generate it first:  python3 gen_lock.py {release}")
+        apply_lock(data["packages"], lock_path)
     order = toposort(data["packages"])
     by_name = {p["name"]: p for p in order}
 

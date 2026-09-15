@@ -9,6 +9,7 @@
 defaults:
   buildtype: release
   default_version: "1.0"      # used when a package omits 'version'
+  release: "2.18"           # if set, auto-loads lock-<release>.yaml (from gen_lock.py) and pins OpenBMC packages to it.
   vendor: "netFELIX"
   maintainer: "gennaro.tortone@na.infn.it"
   fpm: fpm
@@ -19,9 +20,9 @@ packages:
 
   - name: boost
     source: tarball
-    url: https://github.com/boostorg/boost/releases/download/boost-1.91.0-1/boost-1.91.0-1-cmake.tar.gz
-    subdir: boost-1.91.0-1
-    version: "1.91.0"
+    url: https://github.com/boostorg/boost/releases/download/boost-{boost_release}/boost-{boost_release}-cmake.tar.gz
+    subdir: boost-{boost_release}
+    version: "{boost_release}"
     builder: script
     packager: fpm
     build_script:
@@ -186,14 +187,14 @@ packages:
   - name: libpldm
     git: https://github.com/openbmc/libpldm
     ref: main
-    meson_opts: ["-Dtests=false"]
+    meson_opts: ["-Dtests=false", "-Dcpp_args=-Wno-error=deprecated-declarations"]
     rpm_prefix: "openbmc-"
     requires: []
       
   - name: pldm
     git: https://github.com/openbmc/pldm
     ref: master
-    meson_opts: ["-Dtransport-implementation=af-mctp", "-Dtests=disabled"]
+    meson_opts: ["-Dtransport-implementation=af-mctp", "-Dtests=disabled", "-Dcpp_args=-Wno-error=deprecated-declarations"]
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-libcper", "openbmc-sdbusplus", "openbmc-sdeventplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-libpldm", "openbmc-stdplus"]
     requires: [libcper, sdbusplus, sdeventplus, phosphor-dbus-interfaces, phosphor-logging, libpldm, stdplus]
@@ -209,7 +210,7 @@ packages:
   - name: entity-manager
     git: https://github.com/openbmc/entity-manager
     ref: master
-    meson_opts: ["-Dtests=disabled"]
+    meson_opts: ["-Dtests=disabled", "-Dcpp_args=['-Wno-error=deprecated-declarations','-Wno-error=maybe-uninitialized']"]
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "boost", "valijson", "libgpiod-devel"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost, valijson, libgpiod-devel]
@@ -217,7 +218,7 @@ packages:
   - name: dbus-sensors
     git: https://github.com/openbmc/dbus-sensors
     ref: master
-    meson_opts: ["-Dtests=disabled"]
+    meson_opts: ["-Dtests=disabled", "-Dcpp_args=-Wno-error=maybe-uninitialized"]
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "boost", "libgpiod-devel", "openbmc-libpeci"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost, libgpiod-devel, libpeci]
@@ -225,7 +226,7 @@ packages:
   - name: bmcweb
     git: https://github.com/openbmc/bmcweb
     ref: master
-    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled"]
+    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled", "-Dcpp_args=-Wno-error=unused-variable"]
     rpm_prefix: "openbmc-"
     requires: [sdbusplus, boost]
 

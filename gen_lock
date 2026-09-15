@@ -18,8 +18,13 @@ of the lock and keeps its manifest ref/version.
 
 Output lockfile format:
     release: "2.18"
+    vars:                    # optional; {name} refs in packages.yaml are expanded
+      boost_release: "1.91.0-1"
     packages:
       entity-manager: {rev: <sha>, version: "2.18"}
+      # to skip a package for this release, mark it disabled (build/list ignore it;
+      # an active package that still requires it becomes an error):
+      spdm: {disabled: true}
       ...
     unresolved: [<names the script could not resolve>]
 
@@ -52,9 +57,11 @@ RECIPE_OVERRIDES = {
     "spdm":                   "spdm",
 }
 
-# SRCREV assignment, e.g.:  SRCREV = "abc123..."   or   SRCREV:pn-foo = "abc123"
+# SRCREV assignment. Handles: SRCREV = "sha", SRCREV:pn-foo = "sha",
+# SRCREV_class-target = "sha", and leading whitespace/other tokens on the line.
+# Not anchored to start-of-line so it also matches indented forms.
 SRCREV_RE = re.compile(
-    r'^\s*SRCREV(?::[^\s=]+)?\s*[?:+]?=\s*["\']([0-9a-fA-F]{7,40})["\']', re.M)
+    r'\bSRCREV(?:[:_][^\s=]+)?\s*[?:+]?=\s*["\']([0-9a-fA-F]{7,40})["\']')
 
 
 def sh(cmd, cwd=None):
@@ -162,7 +169,12 @@ def main():
             print(f"  {name:<32} {rev[:12]}  ({src.relative_to(meta_dir)})")
         else:
             unresolved.append(name)
-            print(f"  {name:<32} NOT FOUND")
+            if not files:
+                reason = f"no recipe file (searched base '{base}')"
+            else:
+                shown = ", ".join(f.relative_to(meta_dir).as_posix() for f in files[:3])
+                reason = f"no SRCREV in: {shown}"
+            print(f"  {name:<32} NOT FOUND  [{reason}]")
 
     lock = {"release": tag, "packages": locked}
     if unresolved:

@@ -12,7 +12,7 @@ packages:
     rev: 3a27d32b33f6f5d3ead59eae1eb5cce1869cf3b4
     version: 2.18.0
   libcper:
-    rev: 1c321faa10c96206f897b5cf29903934df842033
+    rev: 680875cbca6901c5de3aa0c9f5443b9c5790efb2
     version: 2.18.0
   libmctp:
     rev: b5f74a7c6fde1886101f2fd9a1385febc66306d7

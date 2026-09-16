@@ -120,7 +120,9 @@ packages:
     rev: 3c8aa74d87f885c6a3bbf71c00d93699b5e91ab1
     version: 2.18.0
   webui-vue:
-    rev: 34e78de5a403f8f79d2efb881ee7b37619a3e6b9
+    # disabled due issue with User Management page (user details)
+    # rev: 34e78de5a403f8f79d2efb881ee7b37619a3e6b9
+    rev: 2ba5c54362a659518b4f2f1d8520757194961871
     version: 2.18.0
   x86-power-control:
     rev: 2947720bc30cdc081ebe2ecaba093268cf115b90

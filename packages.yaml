@@ -226,7 +226,7 @@ packages:
   - name: bmcweb
     git: https://github.com/openbmc/bmcweb
     ref: master
-    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled", "-Dcpp_args=-Wno-error=unused-variable"]
+    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled", "-Dredfish-dbus-log=enabled", "-Dcpp_args=-Wno-error=unused-variable"]
     rpm_prefix: "openbmc-"
     requires: [sdbusplus, boost]
 
@@ -273,7 +273,7 @@ packages:
   - name: phosphor-networkd
     git: https://github.com/openbmc/phosphor-networkd
     ref: master
-    meson_opts: ["-Dtests=disabled"]
+    meson_opts: ["-Dtests=disabled", "-Dsync-mac=false"]
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus", "openbmc-stdplus"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus, stdplus]

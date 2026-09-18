@@ -86,6 +86,9 @@ packages:
   phosphor-power-control:
     rev: 09fdcb592a9320b9363fb1c7fec872a69ac95189
     version: 2.18.0
+  phosphor-service-config-manager:
+    rev: c828db702208df9fccd96f8bef036e3f32012bcd
+    version: 2.18.0
   phosphor-settingsd:
     rev: 3c3319aafeab79375623f5dad179a252cbdc2407
     version: 2.18.0

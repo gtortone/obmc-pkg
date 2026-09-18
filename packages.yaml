@@ -226,7 +226,7 @@ packages:
   - name: bmcweb
     git: https://github.com/openbmc/bmcweb
     ref: master
-    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled", "-Dredfish-dbus-log=enabled", "-Dcpp_args=-Wno-error=unused-variable"]
+    meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled", "-Dredfish-dbus-log=enabled", "-Dredfish-bmc-journal=disabled", "-Dcpp_args=-Wno-error=unused-variable"]
     rpm_prefix: "openbmc-"
     requires: [sdbusplus, boost]
 
@@ -249,7 +249,7 @@ packages:
   - name: phosphor-settingsd
     git: https://github.com/openbmc/phosphor-settingsd
     ref: master
-    meson_opts: []
+    meson_opts: ["-Dsettings_yaml=defaults.yaml"]
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
@@ -389,6 +389,14 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-host-ipmid", "openbmc-phosphor-logging"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-host-ipmid, phosphor-logging]
+
+  - name: phosphor-service-config-manager
+    git: https://github.com/openbmc/service-config-manager
+    ref: master
+    meson_opts: []
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
 
   - name: phosphor-time-manager
     git: https://github.com/openbmc/phosphor-time-manager

@@ -33,6 +33,9 @@ from pathlib import Path
 import yaml
 
 # --- Base paths (overridable via env) ---------------------------------------
+# Directory of this script (the obmc-pkg project root): use it for overlays and
+# other project-local files, distinct from OBMC_HOME where sources are cloned.
+BASE_DIR = Path(__file__).resolve().parent
 OBMC_HOME = Path(os.environ.get("OBMC_HOME", Path.home() / "openbmc")).resolve()
 OBMC_LOCAL = Path(os.environ.get("OBMC_LOCAL", OBMC_HOME / "local")).resolve()
 OUT = Path(os.environ.get("OBMC_RPMS", OBMC_HOME / "rpms")).resolve()
@@ -527,6 +530,13 @@ def do_package(cfg, defaults):
             args += ["--vendor", defaults["vendor"]]
         if defaults.get("maintainer"):
             args += ["--maintainer", defaults["maintainer"]]
+        # Strip the auto-generated /usr/lib/.build-id/* symlinks from the RPM.
+        # Configurable via rpm_build_id_links (per package or in defaults);
+        # empty string disables the define. Default: none.
+        bid = cfg.get("rpm_build_id_links",
+                      defaults.get("rpm_build_id_links", "none"))
+        if bid:
+            args += ["--rpm-rpmbuild-define", f"_build_id_links {bid}"]
         for dep in cfg.get("rpm_requires", []):
             args += ["-d", dep]
         args.append(f"{fpm_src}/={fpm_prefix}")
@@ -554,7 +564,7 @@ def do_package(cfg, defaults):
 def _ctx(cfg):
     src = src_dir(cfg)
     return {"src": src, "build": src / "build", "stage": src / "stage",
-            "sysroot": OBMC_LOCAL, "home": OBMC_HOME,
+            "sysroot": OBMC_LOCAL, "home": OBMC_HOME, "base": BASE_DIR,
             "version": pkg_version(cfg), "name": cfg["name"]}
 
 

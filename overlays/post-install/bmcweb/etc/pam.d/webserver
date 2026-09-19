@@ -1,0 +1,10 @@
+#%PAM-1.0
+
+# Deny web/Redfish login for UID 0; root keeps console and SSH access
+auth    requisite    pam_succeed_if.so uid ne 0 quiet
+auth     include  system-auth
+# skip redfish group check for non-local user (ldap)
+auth     [success=ok perm_denied=1 default=ignore] pam_localuser.so
+auth     required pam_succeed_if.so user ingroup redfish
+account  include  system-auth
+password include  system-auth

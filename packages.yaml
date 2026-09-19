@@ -13,6 +13,9 @@ defaults:
   vendor: "netFELIX"
   maintainer: "gennaro.tortone@na.infn.it"
   fpm: fpm
+  # rpm_build_id_links: none   # default 'none': strip /usr/lib/.build-id/* from
+                              # RPMs. Set to separate/compat to keep them, or ""
+                              # to omit the define. Overridable per package.
 
 packages:
 
@@ -108,13 +111,13 @@ packages:
     ref: master
     meson_opts: ["-Dexamples=disabled", "-Dtests=disabled"]
     rpm_prefix: "openbmc-"
+    rpm_requires: ["systemd-libs", "stdexec", "boost"]
+    requires: [stdexec, boost]
     hooks:
       post_install:
         - "cd {src}/tools && python3 -m build"
         - "cd {src}/tools && pip install --no-deps --ignore-installed --root {stage}   dist/sdbusplus-*.tar.gz"
         - "cd {src}/tools && pip install --no-deps --ignore-installed --root {sysroot} dist/sdbusplus-*.tar.gz"
-    rpm_requires: ["systemd-libs", "stdexec", "boost"]
-    requires: [stdexec, boost]
 
   - name: sdeventplus
     git: https://github.com/openbmc/sdeventplus
@@ -214,6 +217,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "boost", "valijson", "libgpiod-devel"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost, valijson, libgpiod-devel]
+    hooks:
+       post_install:
+         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
       
   - name: dbus-sensors
     git: https://github.com/openbmc/dbus-sensors
@@ -229,6 +235,9 @@ packages:
     meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled", "-Dredfish-dbus-log=enabled", "-Dredfish-bmc-journal=disabled", "-Dcpp_args=-Wno-error=unused-variable"]
     rpm_prefix: "openbmc-"
     requires: [sdbusplus, boost]
+    hooks:
+       post_install:
+         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
 
   - name: obmc-console
     git: https://github.com/openbmc/obmc-console
@@ -237,6 +246,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["libgpiod-devel"]
     requires: [libgpiod-devel]
+    hooks:
+       post_install:
+         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
       
   - name: phosphor-state-manager
     git: https://github.com/openbmc/phosphor-state-manager
@@ -253,6 +265,11 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+    hooks:
+       post_checkout:
+         - "cp -a {base}/overlays/post-checkout/{name}/defaults.yaml {src}/"
+       post_install:
+         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
       
   - name: phosphor-user-manager
     git: https://github.com/openbmc/phosphor-user-manager
@@ -261,6 +278,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+    hooks:
+       post_install:
+         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
 
   - name: phosphor-certificate-manager
     git: https://github.com/openbmc/phosphor-certificate-manager
@@ -405,6 +425,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+    hooks:
+       post_install:
+         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
 
   - name: phosphor-pid-control
     git: https://github.com/openbmc/phosphor-pid-control

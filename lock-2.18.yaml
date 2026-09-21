@@ -59,6 +59,9 @@ packages:
   phosphor-hwmon:
     rev: a385d8999fa1893690e150383c93b2b91f43d339
     version: 2.18.0
+  phosphor-inventory-manager:
+    rev: 80edab78fed6402026ba813a47b1524f4f3662d1
+    version: 2.18.0
   phosphor-led-manager:
     rev: 858e5731ff4a058bcf79094f4b948d0b36d127b7
     version: 2.18.0

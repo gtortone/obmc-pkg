@@ -150,6 +150,17 @@ packages:
     rpm_requires: ["openbmc-sdbusplus"]
     requires: [sdbusplus]
 
+  - name: phosphor-inventory-manager
+    git: https://github.com/openbmc/phosphor-inventory-manager
+    ref: master
+    meson_opts: ["-Dtests=disabled", "-DYAML_PATH={src}/pim-config", "-DIFACES_PATH={sysroot}/usr/share/phosphor-dbus-yaml"]
+    rpm_prefix: "openbmc-"
+    rpm_requires: ["openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdbusplus"]
+    requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
+    hooks:
+       post_checkout:
+         - "cp -a {base}/overlays/post-checkout/{name}/* {src}/"
+
   - name: phosphor-logging
     git: https://github.com/openbmc/phosphor-logging
     ref: master
@@ -217,9 +228,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "boost", "valijson", "libgpiod-devel"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost, valijson, libgpiod-devel]
-    hooks:
-       post_install:
-         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
+    #hooks:
+    #   post_install:
+    #     - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
       
   - name: dbus-sensors
     git: https://github.com/openbmc/dbus-sensors
@@ -228,6 +239,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "boost", "libgpiod-devel", "openbmc-libpeci"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, boost, libgpiod-devel, libpeci]
+    hooks:
+       post_checkout:
+         - "cp -a {base}/overlays/post-checkout/{name}/* {src}/"
 
   - name: bmcweb
     git: https://github.com/openbmc/bmcweb
@@ -235,9 +249,9 @@ packages:
     meson_opts: ["-Dtests=disabled", "-Dkvm=disabled", "-Dredfish-aggregation=enabled", "-Drest=enabled", "-Dredfish-dbus-log=enabled", "-Dredfish-bmc-journal=disabled", "-Dcpp_args=-Wno-error=unused-variable"]
     rpm_prefix: "openbmc-"
     requires: [sdbusplus, boost]
-    hooks:
-       post_install:
-         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
+    #hooks:
+    #   post_install:
+    #     - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
 
   - name: obmc-console
     git: https://github.com/openbmc/obmc-console
@@ -246,9 +260,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["libgpiod-devel"]
     requires: [libgpiod-devel]
-    hooks:
-       post_install:
-         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
+    #hooks:
+    #   post_install:
+    #     - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
       
   - name: phosphor-state-manager
     git: https://github.com/openbmc/phosphor-state-manager
@@ -268,8 +282,8 @@ packages:
     hooks:
        post_checkout:
          - "cp -a {base}/overlays/post-checkout/{name}/defaults.yaml {src}/"
-       post_install:
-         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
+    #   post_install:
+    #     - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
       
   - name: phosphor-user-manager
     git: https://github.com/openbmc/phosphor-user-manager
@@ -278,9 +292,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
-    hooks:
-       post_install:
-         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
+    #hooks:
+    #   post_install:
+    #     - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
 
   - name: phosphor-certificate-manager
     git: https://github.com/openbmc/phosphor-certificate-manager
@@ -425,9 +439,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging]
-    hooks:
-       post_install:
-         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
+    #hooks:
+    #   post_install:
+    #     - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
 
   - name: phosphor-pid-control
     git: https://github.com/openbmc/phosphor-pid-control

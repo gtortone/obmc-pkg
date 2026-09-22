@@ -1,5 +1,0 @@
-[D-BUS Service]
-Name=xyz.openbmc_project.Settings
-Exec=/bin/false
-User=root
-SystemdService=xyz.openbmc_project.Settings.service

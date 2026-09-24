@@ -336,6 +336,9 @@ packages:
     rpm_prefix: "openbmc-"
     rpm_requires: ["openbmc-sdbusplus", "openbmc-phosphor-dbus-interfaces", "openbmc-phosphor-logging", "openbmc-sdeventplus"]
     requires: [sdbusplus, phosphor-dbus-interfaces, phosphor-logging, sdeventplus]
+    hooks:
+       post_install:
+         - "cp -a {base}/overlays/post-install/{name}/* {src}/stage"
 
   - name: phosphor-led-sysfs
     git: https://github.com/openbmc/phosphor-led-sysfs
